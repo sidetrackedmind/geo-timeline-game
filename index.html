@@ -323,7 +323,7 @@
 <header>
   <h1>Earth Timeline</h1>
   <span class="subtitle">Can you find the humans?</span>
-  <button id="infoBtn" title="Period guide" style="margin-left:auto;background:none;border:1px solid rgba(255,255,255,0.15);color:var(--text);font-family:'Space Mono',monospace;font-size:0.65rem;letter-spacing:0.1em;padding:5px 13px;cursor:pointer;border-radius:2px;opacity:0.6;transition:opacity 0.2s;text-transform:uppercase;">Guide</button>
+  <button id="infoBtn" title="Period guide" style="margin-left:auto;background:none;border:1px solid rgba(255,255,255,0.15);color:var(--text);font-family:'Space Mono',monospace;font-size:0.65rem;letter-spacing:0.08em;text-transform:uppercase;padding:7px 10px;border-radius:2px;cursor:pointer;opacity:0.85;">Guide</button>
   <div class="lives">
     <span style="font-size:0.6rem;opacity:0.4;margin-right:4px;letter-spacing:0.1em;text-transform:uppercase;">Tries</span>
     <div class="life-dot" id="d0"></div>
@@ -377,7 +377,7 @@
     The timeline scrolls through Earth's entire geologic history.<br>
     Stop it the moment humans appear.<br><br>
     You have 2 attempts. Each miss shows how far off you were.<br>
-    Adjust the speed until it feels just hard enough.
+    If you overshoot, you can now fall into the near future or the distant future.
   </p>
   <button id="beginBtn">Begin</button>
 </div>
@@ -386,18 +386,20 @@
 // ─── GEOLOGIC DATA ────────────────────────────────────────────────
 // All values in millions of years ago (Ma). Negative = future. Start = 4500 Ma, End = -1500 Ma.
 const EONS = [
-  { name: "Hadean",       start: 4500,  end: 4000, color: "#1a0a00", textColor: "#c87040" },
-  { name: "Archean",      start: 4000,  end: 2500, color: "#0d1a10", textColor: "#50a060" },
-  { name: "Proterozoic",  start: 2500,  end: 541,  color: "#0a0d1f", textColor: "#5070c0" },
-  { name: "Phanerozoic",  start: 541,   end: 0,    color: "#0f0a1a", textColor: "#9060c0" },
-  { name: "Future",       start: 0,     end: -1500,color: "#0a0a18", textColor: "#6655aa" },
+  { name: "Hadean",       start: 4500,  end: 4000,  color: "#1a0a00", textColor: "#c87040" },
+  { name: "Archean",      start: 4000,  end: 2500,  color: "#0d1a10", textColor: "#50a060" },
+  { name: "Proterozoic",  start: 2500,  end: 541,   color: "#0a0d1f", textColor: "#5070c0" },
+  { name: "Phanerozoic",  start: 541,   end: 0,     color: "#0f0a1a", textColor: "#9060c0" },
+  { name: "Near Future",  start: 0,     end: -1,    color: "#101424", textColor: "#7aa2ff" },
+  { name: "Distant Future", start: -1,  end: -1500, color: "#140d1d", textColor: "#b184e8" },
 ];
 
 const ERAS = [
-  // Phanerozoic eras
-  { name: "Paleozoic",  start: 541,  end: 252,  color: "#0d1520", textColor: "#4080b0" },
-  { name: "Mesozoic",   start: 252,  end: 66,   color: "#0a1a10", textColor: "#40a060" },
-  { name: "Cenozoic",   start: 66,   end: 0,    color: "#1a1508", textColor: "#c0a040" },
+  { name: "Paleozoic",  start: 541,  end: 252, color: "#0d1520", textColor: "#4080b0" },
+  { name: "Mesozoic",   start: 252,  end: 66,  color: "#0a1a10", textColor: "#40a060" },
+  { name: "Cenozoic",   start: 66,   end: 0,   color: "#1a1508", textColor: "#c0a040" },
+  { name: "Near Future", start: 0,   end: -1,  color: "#121a30", textColor: "#7aa2ff" },
+  { name: "Distant Future", start: -1, end: -1500, color: "#1a1026", textColor: "#b184e8" },
 ];
 
 const PERIODS = [
@@ -413,17 +415,15 @@ const PERIODS = [
   { name: "Paleogene",   start: 66,   end: 23,   color: "#1f1a08" },
   { name: "Neogene",     start: 23,   end: 2.58, color: "#221808" },
   { name: "Quaternary",  start: 2.58, end: 0,    color: "#1a1505" },
+  { name: "Near Future", start: 0,    end: -1,   color: "#17203d" },
+  { name: "Distant Future", start: -1, end: -1500, color: "#231635" },
 ];
 
-// Win window: anywhere humans exist — 0 Ma (present) to 0.35 Ma (350,000 ya)
-// Off-by = distance to nearest edge of that window
-const HUMAN_WIN_MA   = 0.35;  // 350,000 ya — earliest Homo sapiens
-const HUMAN_START_MA = 0;     // present
-
-// Timeline runs from 4500 Ma (past) to -1500 Ma (future)
+const HUMAN_WIN_MA = 0.35;
+const HUMAN_START_MA = 0;
+const NEAR_FUTURE_LIMIT_MA = -1;
 const TIMELINE_END_MA = -1500;
 
-// ─── CANVAS & STATE ───────────────────────────────────────────────
 const canvas  = document.getElementById('timelineCanvas');
 const ctx     = canvas.getContext('2d');
 const scene   = document.getElementById('scene');
@@ -436,20 +436,18 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// Timeline: scroll from 4500 Ma → 0 Ma
 const TOTAL_MA   = 4500;
-let currentMa    = TOTAL_MA; // current position (millions of years ago)
+let currentMa    = TOTAL_MA;
 let running      = false;
 let gameActive   = false;
 let triesLeft    = 3;
-let attempts     = []; // {ma, offBy}
+let attempts     = [];
 let animId       = null;
 let lastTime     = null;
 
-// Speed: slider value 1–12, meaning (value * 100) million years per second
 const speedSlider = document.getElementById('speedSlider');
 const speedLabel  = document.getElementById('speedLabel');
-function getSpeed() { return parseFloat(speedSlider.value) * 100; } // Ma/sec
+function getSpeed() { return parseFloat(speedSlider.value) * 100; }
 
 speedSlider.addEventListener('input', () => {
   const s = getSpeed();
@@ -465,7 +463,6 @@ function formatMa(ma) {
 
 function formatYa(ma) {
   if (ma < 0) {
-    // Future
     const fy = Math.abs(ma) * 1e6;
     if (fy >= 1e9)  return (fy/1e9).toFixed(2) + ' billion years from now';
     if (fy >= 1e6)  return (fy/1e6).toFixed(2) + ' million years from now';
@@ -480,7 +477,6 @@ function formatYa(ma) {
   return 'present day';
 }
 
-// ─── DRAWING ─────────────────────────────────────────────────────
 function getEonAt(ma) {
   return EONS.find(e => ma <= e.start && ma >= e.end) || EONS[EONS.length-1];
 }
@@ -491,10 +487,7 @@ function getPeriodAt(ma) {
   return PERIODS.find(p => ma <= p.start && ma >= p.end) || null;
 }
 
-// How many Ma fit across the full canvas width — fixed regardless of speed.
-// At ~4500 Ma total, showing 800 Ma at a time gives good period visibility.
 const FIXED_WINDOW_MA = 800;
-
 function getWindowMa() {
   return FIXED_WINDOW_MA;
 }
@@ -503,15 +496,13 @@ function draw() {
   ctx.clearRect(0, 0, W, H);
 
   const winMa   = getWindowMa();
-  const leftMa  = currentMa + winMa * 0.5;  // left edge (further past)
-  const rightMa = currentMa - winMa * 0.5;  // right edge (closer to present)
+  const leftMa  = currentMa + winMa * 0.5;
+  const rightMa = currentMa - winMa * 0.5;
 
-  // Ma → pixel X
   function maToX(ma) {
     return W * (leftMa - ma) / winMa;
   }
 
-  // Draw stratum bands (eons)
   for (const eon of EONS) {
     const x1 = maToX(eon.start);
     const x2 = maToX(eon.end);
@@ -523,7 +514,6 @@ function draw() {
     ctx.fillRect(Math.max(0,x1), 0, Math.min(W,x2)-Math.max(0,x1), H);
   }
 
-  // Draw era bands (lighter stripe across middle)
   for (const era of ERAS) {
     const x1 = maToX(era.start);
     const x2 = maToX(era.end);
@@ -532,7 +522,6 @@ function draw() {
     ctx.fillRect(Math.max(0,x1), H*0.3, Math.min(W,x2)-Math.max(0,x1), H*0.4);
   }
 
-  // Draw period bands (thin stripe)
   for (const per of PERIODS) {
     const x1 = maToX(per.start);
     const x2 = maToX(per.end);
@@ -541,7 +530,6 @@ function draw() {
     ctx.fillRect(Math.max(0,x1), H*0.38, Math.min(W,x2)-Math.max(0,x1), H*0.24);
   }
 
-  // Draw boundary tick marks
   const allBounds = [...EONS, ...ERAS, ...PERIODS];
   for (const b of allBounds) {
     const x = maToX(b.start);
@@ -551,7 +539,6 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
   }
 
-  // Label periods when visible enough
   for (const per of PERIODS) {
     const x1 = maToX(per.start);
     const x2 = maToX(per.end);
@@ -561,14 +548,13 @@ function draw() {
     if (width < 40) continue;
     ctx.save();
     ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.font = `${Math.min(11, width/per.name.length * 1.4)}px 'Space Mono', monospace`;
+    ctx.font = `${Math.min(11, Math.abs(width)/per.name.length * 1.4)}px 'Space Mono', monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(per.name, midX, H * 0.5);
     ctx.restore();
   }
 
-  // Label eons
   for (const eon of EONS) {
     const x1 = maToX(eon.start);
     const x2 = maToX(eon.end);
@@ -583,7 +569,6 @@ function draw() {
     ctx.restore();
   }
 
-  // ── Human zone highlight ──
   const hx1 = maToX(HUMAN_WIN_MA);
   const hx2 = maToX(HUMAN_START_MA);
   if (hx1 < W && hx2 > 0) {
@@ -593,17 +578,14 @@ function draw() {
     ctx.restore();
   }
 
-  // ── Noise / grain overlay ──
   drawGrain();
 
-  // ── Vignette ──
   const vign = ctx.createRadialGradient(W/2, H/2, H*0.2, W/2, H/2, H*0.9);
   vign.addColorStop(0, 'rgba(0,0,0,0)');
   vign.addColorStop(1, 'rgba(0,0,0,0.55)');
   ctx.fillStyle = vign;
   ctx.fillRect(0, 0, W, H);
 
-  // ── Center line glow ──
   const cx = W/2;
   const cGlow = ctx.createLinearGradient(cx-30, 0, cx+30, 0);
   cGlow.addColorStop(0, 'rgba(255,255,255,0)');
@@ -612,7 +594,6 @@ function draw() {
   ctx.fillStyle = cGlow;
   ctx.fillRect(cx-30, 0, 60, H);
 
-  // ── Update UI ──
   updateUI();
 }
 
@@ -624,7 +605,6 @@ function shiftColor(hex, amount) {
   return `rgb(${r},${g},${b})`;
 }
 
-// Simple canvas grain
 function drawGrain() {
   const imgData = ctx.getImageData(0, 0, W, H);
   const d = imgData.data;
@@ -649,20 +629,18 @@ function updateUI() {
   document.getElementById('yearReadout').textContent = formatYa(currentMa);
 }
 
-// ─── GAME LOOP ────────────────────────────────────────────────────
 function loop(ts) {
   if (!running) return;
   if (lastTime === null) lastTime = ts;
-  const dt   = (ts - lastTime) / 1000; // seconds
+  const dt   = (ts - lastTime) / 1000;
   lastTime   = ts;
-  const speed = getSpeed(); // Ma/sec
+  const speed = getSpeed();
   currentMa -= speed * dt;
 
   if (currentMa <= TIMELINE_END_MA) {
     currentMa = TIMELINE_END_MA;
     running = false;
     draw();
-    // Scrolled into far future — count as miss
     onStop();
     return;
   }
@@ -682,7 +660,6 @@ function stopLoop() {
   if (animId) cancelAnimationFrame(animId);
 }
 
-// ─── GAME LOGIC ───────────────────────────────────────────────────
 function startGame() {
   stopIdle();
   stopLoop();
@@ -702,22 +679,28 @@ function startGame() {
   startLoop();
 }
 
+function getFutureCategory(ma) {
+  if (ma >= HUMAN_START_MA) return null;
+  return ma >= NEAR_FUTURE_LIMIT_MA ? 'near future' : 'distant future';
+}
+
 function onStop() {
   if (!gameActive) return;
   gameActive = false;
   stopLoop();
 
-  // Off-by = distance to nearest edge of human window [HUMAN_START_MA, HUMAN_WIN_MA]
   let offMa;
   if (currentMa >= HUMAN_START_MA && currentMa <= HUMAN_WIN_MA) {
     offMa = 0;
   } else if (currentMa > HUMAN_WIN_MA) {
-    offMa = currentMa - HUMAN_WIN_MA; // too far in the past
+    offMa = currentMa - HUMAN_WIN_MA;
   } else {
-    offMa = HUMAN_START_MA - currentMa; // in the future (currentMa < 0)
+    offMa = HUMAN_START_MA - currentMa;
   }
+
   const offYears = offMa * 1e6;
-  attempts.push({ ma: currentMa, offMa });
+  const futureCategory = getFutureCategory(currentMa);
+  attempts.push({ ma: currentMa, offMa, futureCategory });
   triesLeft--;
 
   const inWindow = offMa === 0;
@@ -726,20 +709,21 @@ function onStop() {
   updateAttemptHistory();
 
   if (inWindow) {
-    // WIN
     showEndScreen(true, offYears, currentMa);
   } else if (triesLeft <= 0) {
-    // GAME OVER
     showEndScreen(false, offYears, currentMa);
   } else {
-    // Show feedback, allow retry from same position but reset
-    showAttemptOverlay(offYears, currentMa, inWindow);
+    showAttemptOverlay(offYears, currentMa);
     flash('bad');
   }
 }
 
 function getPeriodLabel(ma) {
-  if (ma < 0) return 'the Future';
+  if (ma < 0) {
+    const futureCategory = getFutureCategory(ma);
+    if (futureCategory === 'near future') return 'the Near Future';
+    return 'the Distant Future';
+  }
   const p = getPeriodAt(ma);
   if (p) return `the ${p.name}`;
   const e = getEraAt(ma);
@@ -748,12 +732,28 @@ function getPeriodLabel(ma) {
   return `the ${eon.name}`;
 }
 
-function showAttemptOverlay(offYears, stoppedMa, hit) {
+function showAttemptOverlay(offYears, stoppedMa) {
+  const futureCategory = getFutureCategory(stoppedMa);
   const tooEarly = stoppedMa > HUMAN_WIN_MA;
-  document.getElementById('attemptTitle').textContent = tooEarly ? 'Too early.' : 'Too late — you\'re in the future.';
+
+  if (tooEarly) {
+    document.getElementById('attemptTitle').textContent = 'Too early.';
+  } else if (futureCategory === 'near future') {
+    document.getElementById('attemptTitle').textContent = 'Too late — near future.';
+  } else {
+    document.getElementById('attemptTitle').textContent = 'Too late — distant future.';
+  }
+
   document.getElementById('attemptTitle').style.color = 'var(--danger)';
-  document.getElementById('attemptDetail').textContent =
-    `You stopped in ${getPeriodLabel(stoppedMa)} — ${formatYa(stoppedMa)}`;
+
+  let detail = `You stopped in ${getPeriodLabel(stoppedMa)} — ${formatYa(stoppedMa)}`;
+  if (futureCategory === 'near future') {
+    detail += ' — humans might still be around.';
+  } else if (futureCategory === 'distant future') {
+    detail += ' — humans are probably gone.';
+  }
+
+  document.getElementById('attemptDetail').textContent = detail;
   document.getElementById('offByText').textContent = `Off by ${fmtOffBy(offYears)}`;
   document.getElementById('livesLeft').textContent = `${triesLeft} ${triesLeft === 1 ? 'try' : 'tries'} remaining`;
   document.getElementById('attemptOverlay').classList.add('show');
@@ -762,9 +762,12 @@ function showAttemptOverlay(offYears, stoppedMa, hit) {
 function showEndScreen(win, offYears, stoppedMa) {
   document.getElementById('endScreen').classList.add('show');
 
-  // Build attempt summary
   const summaryLines = attempts.map((a, i) => {
-    const direction = a.ma > HUMAN_WIN_MA ? '← too early' : (a.ma < HUMAN_START_MA ? 'too late →' : '✓ in range');
+    const direction = a.ma > HUMAN_WIN_MA
+      ? '← too early'
+      : (a.ma < HUMAN_START_MA
+        ? (a.futureCategory === 'near future' ? 'near future →' : 'distant future →')
+        : '✓ in range');
     return `Try ${i + 1}: &nbsp;${getPeriodLabel(a.ma)}, ${formatYa(a.ma)} &nbsp;—&nbsp; off by ${fmtOffBy(a.offMa * 1e6)} &nbsp;${direction}`;
   });
   document.getElementById('endSummary').innerHTML = summaryLines.join('<br>');
@@ -778,11 +781,21 @@ function showEndScreen(win, offYears, stoppedMa) {
     flash('good');
   } else {
     const tooEarly = stoppedMa > HUMAN_WIN_MA;
-    const inFuture = stoppedMa < HUMAN_START_MA;
-    document.getElementById('endIcon').textContent = inFuture ? '🔭' : '🦕';
-    document.getElementById('endTitle').textContent = tooEarly ? `Still in ${getPeriodLabel(stoppedMa)}.` : 'Too far into the future.';
+    const futureCategory = getFutureCategory(stoppedMa);
+    document.getElementById('endIcon').textContent = futureCategory ? '🔭' : '🦕';
+
+    if (tooEarly) {
+      document.getElementById('endTitle').textContent = `Still in ${getPeriodLabel(stoppedMa)}.`;
+      document.getElementById('endDetail').textContent = `Last stop: ${formatYa(stoppedMa)}`;
+    } else if (futureCategory === 'near future') {
+      document.getElementById('endTitle').textContent = 'You drifted into the near future.';
+      document.getElementById('endDetail').textContent = `Last stop: ${formatYa(stoppedMa)} — humans might still exist here.`;
+    } else {
+      document.getElementById('endTitle').textContent = 'You drifted into the distant future.';
+      document.getElementById('endDetail').textContent = `Last stop: ${formatYa(stoppedMa)} — humans are probably gone.`;
+    }
+
     document.getElementById('endTitle').style.color = 'var(--danger)';
-    document.getElementById('endDetail').textContent = `Last stop: ${formatYa(stoppedMa)}`;
     document.getElementById('endOffBy').textContent = `Off by ${fmtOffBy(offYears)}`;
     flash('bad');
   }
@@ -812,9 +825,12 @@ function updateDots() {
 
 function updateAttemptHistory() {
   const el = document.getElementById('attemptHistory');
-  el.innerHTML = attempts.map((a, i) =>
-    `Try ${i+1}: ${a.ma < HUMAN_START_MA ? 'past present' : formatYa(a.ma)} — off by ${fmtOffBy(a.offMa * 1e6)}`
-  ).join('<br>');
+  el.innerHTML = attempts.map((a, i) => {
+    const label = a.ma < HUMAN_START_MA
+      ? `${formatYa(a.ma)} (${a.futureCategory === 'near future' ? 'near future' : 'distant future'})`
+      : formatYa(a.ma);
+    return `Try ${i+1}: ${label} — off by ${fmtOffBy(a.offMa * 1e6)}`;
+  }).join('<br>');
 }
 
 function flash(type) {
@@ -824,7 +840,6 @@ function flash(type) {
   setTimeout(() => el.style.opacity = '0', 180);
 }
 
-// ─── INPUT ────────────────────────────────────────────────────────
 let inputBlocked = false;
 function blockInputBriefly() {
   inputBlocked = true;
@@ -842,13 +857,10 @@ scene.addEventListener('click', () => {
   if (gameActive && running && !inputBlocked) onStop();
 });
 
-// ─── BUTTON WIRING ────────────────────────────────────────────────
 document.getElementById('beginBtn').addEventListener('click', e => { e.stopPropagation(); startGame(); });
 document.getElementById('tryAgainBtn').addEventListener('click', e => { e.stopPropagation(); resumeGame(); });
 document.getElementById('playAgainBtn').addEventListener('click', e => { e.stopPropagation(); startGame(); });
 
-// ─── INIT ─────────────────────────────────────────────────────────
-// Animate background on start screen
 let idleId = null;
 function idleDraw() {
   currentMa -= 0.5;
@@ -861,391 +873,7 @@ function stopIdle() {
 }
 idleDraw();
 
-// Init speed label
 speedLabel.textContent = formatMa(getSpeed()) + '/sec';
-
-// ─── PERIOD GUIDE ─────────────────────────────────────────────────
-const GUIDE_DATA = [
-  {
-    name: "Hadean", range: "4,500 – 4,000 Ma", type: "Eon",
-    color: "#c87040",
-    facts: "Earth's hellish infancy. The surface was a global magma ocean. No solid crust, no oceans, no life. The Moon formed here after a Mars-sized body slammed into proto-Earth. Intense bombardment by meteorites was relentless.",
-    sources: [
-      { label: "USGS — Geologic Time", url: "https://pubs.usgs.gov/gip/geotim/geotim.html" },
-      { label: "Wikipedia — Hadean", url: "https://en.wikipedia.org/wiki/Hadean" },
-      { label: "NASA — Moon Formation", url: "https://solarsystem.nasa.gov/moons/earths-moon/in-depth/" },
-    ]
-  },
-  {
-    name: "Archean", range: "4,000 – 2,500 Ma", type: "Eon",
-    color: "#50a060",
-    facts: "The first solid crust and oceans appeared. Simple single-celled life (prokaryotes) emerged — the oldest known fossils date to ~3,500 Ma. Stromatolites (microbial mats) began altering the atmosphere. No oxygen yet.",
-    sources: [
-      { label: "Wikipedia — Archean", url: "https://en.wikipedia.org/wiki/Archean" },
-      { label: "Smithsonian — Early Life", url: "https://ocean.si.edu/through-time/ancient-seas/origins-life" },
-      { label: "UCMP Berkeley — Archean", url: "https://ucmp.berkeley.edu/precambrian/archean.php" },
-    ]
-  },
-  {
-    name: "Proterozoic", range: "2,500 – 541 Ma", type: "Eon",
-    color: "#5070c0",
-    facts: "Oxygen flooded the atmosphere in the 'Great Oxidation Event' (~2,400 Ma), poisoning most existing life but enabling complex organisms. The first eukaryotes (cells with nuclei) appeared. Ended with 'Snowball Earth' glaciations and the first multicellular animals.",
-    sources: [
-      { label: "Wikipedia — Great Oxidation Event", url: "https://en.wikipedia.org/wiki/Great_Oxidation_Event" },
-      { label: "Wikipedia — Snowball Earth", url: "https://en.wikipedia.org/wiki/Snowball_Earth" },
-      { label: "UCMP Berkeley — Proterozoic", url: "https://ucmp.berkeley.edu/precambrian/proterozoic.php" },
-    ]
-  },
-  {
-    name: "Cambrian", range: "541 – 485 Ma", type: "Period",
-    color: "#4080b0",
-    facts: "The 'Cambrian Explosion' — most major animal body plans appeared within ~25 million years. Trilobites dominated the seas. Eyes evolved for the first time. The Burgess Shale fossils preserve extraordinary soft-bodied creatures from this era.",
-    sources: [
-      { label: "Wikipedia — Cambrian Explosion", url: "https://en.wikipedia.org/wiki/Cambrian_explosion" },
-      { label: "Smithsonian — Burgess Shale", url: "https://naturalhistory.si.edu/research/paleobiology/collections-overview/burgess-shale-type-deposits" },
-      { label: "UCMP Berkeley — Cambrian", url: "https://ucmp.berkeley.edu/cambrian/cambrian.php" },
-    ]
-  },
-  {
-    name: "Ordovician", range: "485 – 444 Ma", type: "Period",
-    color: "#3878a0",
-    facts: "Marine life exploded in diversity. The first jawless fish appeared. Plants began colonizing land. Ended with the second-largest mass extinction in history (~85% of species lost), likely triggered by a brief but severe ice age.",
-    sources: [
-      { label: "Wikipedia — Ordovician", url: "https://en.wikipedia.org/wiki/Ordovician" },
-      { label: "Wikipedia — Ordovician Extinction", url: "https://en.wikipedia.org/wiki/Late_Ordovician_mass_extinction" },
-      { label: "UCMP Berkeley — Ordovician", url: "https://ucmp.berkeley.edu/ordovician/ordovician.php" },
-    ]
-  },
-  {
-    name: "Silurian", range: "444 – 419 Ma", type: "Period",
-    color: "#408870",
-    facts: "Life recovered from the Ordovician extinction. Jawed fish and the first vascular land plants appeared. Coral reefs became widespread. Sea levels rose dramatically as glaciers melted. The atmosphere became more oxygen-rich.",
-    sources: [
-      { label: "Wikipedia — Silurian", url: "https://en.wikipedia.org/wiki/Silurian" },
-      { label: "UCMP Berkeley — Silurian", url: "https://ucmp.berkeley.edu/silurian/silurian.php" },
-      { label: "Britannica — Silurian Period", url: "https://www.britannica.com/science/Silurian-Period" },
-    ]
-  },
-  {
-    name: "Devonian", range: "419 – 359 Ma", type: "Period",
-    color: "#608820",
-    facts: "The 'Age of Fishes.' Forests appeared on land for the first time. The first four-limbed vertebrates (tetrapods) crawled onto land. Ended in a major extinction that wiped out ~75% of species, possibly caused by massive plant-driven changes to ocean chemistry.",
-    sources: [
-      { label: "Wikipedia — Devonian", url: "https://en.wikipedia.org/wiki/Devonian" },
-      { label: "Wikipedia — Late Devonian Extinction", url: "https://en.wikipedia.org/wiki/Late_Devonian_extinction" },
-      { label: "UCMP Berkeley — Devonian", url: "https://ucmp.berkeley.edu/devonian/devonian.php" },
-    ]
-  },
-  {
-    name: "Carboniferous", range: "359 – 299 Ma", type: "Period",
-    color: "#407030",
-    facts: "Dense swamp forests covered the continents. Dead plant matter accumulated into the coal deposits we burn today. The first reptiles evolved — animals fully independent of water. Oxygen levels reached ~35% (vs 21% today), enabling giant insects including dragonflies with 70cm wingspans.",
-    sources: [
-      { label: "Wikipedia — Carboniferous", url: "https://en.wikipedia.org/wiki/Carboniferous" },
-      { label: "UCMP Berkeley — Carboniferous", url: "https://ucmp.berkeley.edu/carboniferous/carboniferous.php" },
-      { label: "Britannica — Carboniferous Period", url: "https://www.britannica.com/science/Carboniferous-Period" },
-    ]
-  },
-  {
-    name: "Permian", range: "299 – 252 Ma", type: "Period",
-    color: "#906030",
-    facts: "All continents merged into Pangaea. Ended with the worst mass extinction ever — the 'Great Dying' killed ~96% of marine species and ~70% of land species. Caused by massive Siberian volcanic eruptions that triggered runaway greenhouse warming and ocean acidification.",
-    sources: [
-      { label: "Wikipedia — Permian–Triassic Extinction", url: "https://en.wikipedia.org/wiki/Permian%E2%80%93Triassic_extinction_event" },
-      { label: "UCMP Berkeley — Permian", url: "https://ucmp.berkeley.edu/permian/permian.php" },
-      { label: "Britannica — Permian Extinction", url: "https://www.britannica.com/science/Permian-Triassic-extinction-event" },
-    ]
-  },
-  {
-    name: "Triassic", range: "252 – 201 Ma", type: "Period",
-    color: "#708030",
-    facts: "Life slowly recovered from the Permian extinction. The first dinosaurs and true mammals appeared. Pangaea began breaking apart. Ended with another extinction (~76% of species) that cleared the way for dinosaurs to dominate.",
-    sources: [
-      { label: "Wikipedia — Triassic", url: "https://en.wikipedia.org/wiki/Triassic" },
-      { label: "Wikipedia — Triassic–Jurassic Extinction", url: "https://en.wikipedia.org/wiki/Triassic%E2%80%93Jurassic_extinction_event" },
-      { label: "UCMP Berkeley — Triassic", url: "https://ucmp.berkeley.edu/mesozoic/triassic/triassic.php" },
-    ]
-  },
-  {
-    name: "Jurassic", range: "201 – 145 Ma", type: "Period",
-    color: "#308050",
-    facts: "The 'Age of Giants.' Sauropod dinosaurs like Brachiosaurus became the largest land animals ever. The first birds evolved from theropod dinosaurs. Pangaea split into Laurasia and Gondwana. Warm, lush conditions with no polar ice caps.",
-    sources: [
-      { label: "Wikipedia — Jurassic", url: "https://en.wikipedia.org/wiki/Jurassic" },
-      { label: "Smithsonian — Dinosaur Hall", url: "https://naturalhistory.si.edu/exhibits/david-h-koch-hall-fossils-deep-time" },
-      { label: "UCMP Berkeley — Jurassic", url: "https://ucmp.berkeley.edu/mesozoic/jurassic/jurassic.php" },
-    ]
-  },
-  {
-    name: "Cretaceous", range: "145 – 66 Ma", type: "Period",
-    color: "#408050",
-    facts: "Flowering plants (angiosperms) evolved and spread rapidly. T. rex and Triceratops walked the Earth. Sea levels were among the highest in history — shallow seas covered much of North America. Ended with the Chicxulub asteroid impact that killed the non-avian dinosaurs.",
-    sources: [
-      { label: "Wikipedia — Cretaceous", url: "https://en.wikipedia.org/wiki/Cretaceous" },
-      { label: "Wikipedia — Chicxulub Impactor", url: "https://en.wikipedia.org/wiki/Chicxulub_crater" },
-      { label: "UCMP Berkeley — Cretaceous", url: "https://ucmp.berkeley.edu/mesozoic/cretaceous/cretaceous.php" },
-    ]
-  },
-  {
-    name: "Paleogene", range: "66 – 23 Ma", type: "Period",
-    color: "#907030",
-    facts: "Mammals rapidly diversified to fill niches left by dinosaurs. Early whales returned to the sea. Primates appeared. The climate was warm, with palm trees growing in the Arctic, then dramatically cooled. India collided with Asia, raising the Himalayas.",
-    sources: [
-      { label: "Wikipedia — Paleogene", url: "https://en.wikipedia.org/wiki/Paleogene" },
-      { label: "UCMP Berkeley — Paleogene", url: "https://ucmp.berkeley.edu/tertiary/paleogene.php" },
-      { label: "Britannica — Paleogene Period", url: "https://www.britannica.com/science/Paleogene-Period" },
-    ]
-  },
-  {
-    name: "Neogene", range: "23 – 2.58 Ma", type: "Period",
-    color: "#a07828",
-    facts: "Grasslands spread globally, driving the evolution of grazing mammals like horses and elephants. Apes and early hominids evolved in Africa. The climate cooled further. The Isthmus of Panama formed, connecting North and South America and reshaping ocean currents.",
-    sources: [
-      { label: "Wikipedia — Neogene", url: "https://en.wikipedia.org/wiki/Neogene" },
-      { label: "Smithsonian Human Origins — Timeline", url: "https://humanorigins.si.edu/human-characteristics/walking-upright" },
-      { label: "Britannica — Neogene Period", url: "https://www.britannica.com/science/Neogene-Period" },
-    ]
-  },
-  {
-    name: "Quaternary", range: "2.58 Ma – present", type: "Period",
-    color: "#c0a040",
-    facts: "Defined by cycles of ice ages and warmer interglacials. Homo sapiens evolved ~300,000 years ago and spread across the globe. Megafauna like mammoths went extinct (partly due to human hunting). Agriculture began ~12,000 years ago. Humans are now the dominant geological force — some call this the Anthropocene.",
-    sources: [
-      { label: "Wikipedia — Quaternary", url: "https://en.wikipedia.org/wiki/Quaternary" },
-      { label: "Smithsonian Human Origins — Homo sapiens", url: "https://humanorigins.si.edu/evidence/human-fossils/species/homo-sapiens" },
-      { label: "Wikipedia — Anthropocene", url: "https://en.wikipedia.org/wiki/Anthropocene" },
-    ]
-  },
-  {
-    name: "Future", range: "Now – 1,500 Ma ahead", type: "Eon",
-    color: "#6655aa",
-    facts: "The Sun will grow ~10% brighter over the next billion years, eventually boiling Earth's oceans. In ~600 million years, CO₂ levels will fall too low for most plants. In ~1 billion years, Earth may become uninhabitable for complex life. The Moon will continue drifting away, slowing Earth's rotation.",
-    sources: [
-      { label: "Wikipedia — Far Future of Earth", url: "https://en.wikipedia.org/wiki/Future_of_Earth" },
-      { label: "NASA — Sun's Life Cycle", url: "https://science.nasa.gov/sun/facts/" },
-      { label: "Wikipedia — Lunar Recession", url: "https://en.wikipedia.org/wiki/Tidal_acceleration" },
-    ]
-  },
-];
-
-const infoModal = document.createElement('div');
-infoModal.id = 'infoModal';
-infoModal.innerHTML = `
-  <div id="infoPanel">
-    <div id="infoPanelHeader">
-      <h2>Geologic Period Guide</h2>
-      <button id="infoCloseBtn">✕</button>
-    </div>
-    <div id="infoPanelBody">
-      <div id="infoList">
-        ${GUIDE_DATA.map((p, i) => `
-          <button class="info-period-btn" data-idx="${i}" style="border-left:3px solid ${p.color}">
-            <span class="info-period-name">${p.name}</span>
-            <span class="info-period-meta">${p.type} · ${p.range}</span>
-          </button>
-        `).join('')}
-      </div>
-      <div id="infoDetail">
-        <div id="infoDetailPlaceholder">← Select a period</div>
-        <div id="infoDetailContent" style="display:none">
-          <div id="infoDetailType"></div>
-          <h3 id="infoDetailName"></h3>
-          <div id="infoDetailRange"></div>
-          <p id="infoDetailFacts"></p>
-          <div id="infoDetailSources"></div>
-        </div>
-      </div>
-    </div>
-  </div>
-`;
-document.body.appendChild(infoModal);
-
-const infoStyle = document.createElement('style');
-infoStyle.textContent = `
-  #infoModal {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.7);
-    backdrop-filter: blur(8px);
-    z-index: 50;
-    align-items: center;
-    justify-content: center;
-  }
-  #infoModal.open { display: flex; }
-  #infoPanel {
-    background: #12121a;
-    border: 1px solid rgba(255,255,255,0.1);
-    width: min(820px, 94vw);
-    max-height: 80vh;
-    border-radius: 4px;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  #infoPanelHeader {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px 20px;
-    border-bottom: 1px solid rgba(255,255,255,0.07);
-    flex-shrink: 0;
-  }
-  #infoPanelHeader h2 {
-    font-family: 'Playfair Display', serif;
-    font-size: 1.15rem;
-    color: var(--accent);
-    font-weight: 700;
-  }
-  #infoCloseBtn {
-    background: none;
-    border: none;
-    color: rgba(255,255,255,0.35);
-    font-size: 1rem;
-    cursor: pointer;
-    padding: 4px 8px;
-    transition: color 0.15s;
-  }
-  #infoCloseBtn:hover { color: var(--text); }
-  #infoPanelBody {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
-  }
-  #infoList {
-    width: 210px;
-    flex-shrink: 0;
-    overflow-y: auto;
-    border-right: 1px solid rgba(255,255,255,0.07);
-    padding: 8px 0;
-  }
-  #infoList::-webkit-scrollbar { width: 4px; }
-  #infoList::-webkit-scrollbar-track { background: transparent; }
-  #infoList::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
-  .info-period-btn {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    width: 100%;
-    background: none;
-    border: none;
-    border-left: 3px solid transparent;
-    padding: 10px 16px;
-    cursor: pointer;
-    text-align: left;
-    transition: background 0.15s;
-  }
-  .info-period-btn:hover, .info-period-btn.active {
-    background: rgba(255,255,255,0.06);
-  }
-  .info-period-name {
-    font-family: 'Space Mono', monospace;
-    font-size: 0.72rem;
-    color: var(--text);
-    letter-spacing: 0.04em;
-  }
-  .info-period-meta {
-    font-size: 0.56rem;
-    color: rgba(255,255,255,0.3);
-    letter-spacing: 0.05em;
-  }
-  #infoDetail {
-    flex: 1;
-    overflow-y: auto;
-    padding: 28px 28px;
-    display: flex;
-    align-items: flex-start;
-  }
-  #infoDetailPlaceholder {
-    font-size: 0.7rem;
-    opacity: 0.2;
-    letter-spacing: 0.1em;
-    margin: auto;
-  }
-  #infoDetailContent { width: 100%; }
-  #infoDetailType {
-    font-size: 0.58rem;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    opacity: 0.4;
-    margin-bottom: 6px;
-  }
-  #infoDetailName {
-    font-family: 'Playfair Display', serif;
-    font-size: 2rem;
-    font-weight: 700;
-    margin-bottom: 6px;
-    letter-spacing: -0.02em;
-  }
-  #infoDetailRange {
-    font-size: 0.62rem;
-    letter-spacing: 0.08em;
-    opacity: 0.4;
-    margin-bottom: 20px;
-  }
-  #infoDetailFacts {
-    font-size: 0.78rem;
-    line-height: 1.85;
-    opacity: 0.75;
-    letter-spacing: 0.02em;
-  }
-  #infoDetailSources {
-    margin-top: 22px;
-    padding-top: 16px;
-    border-top: 1px solid rgba(255,255,255,0.07);
-  }
-  .sources-label {
-    font-size: 0.54rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    opacity: 0.35;
-    margin-bottom: 10px;
-  }
-  .source-link {
-    display: block;
-    font-size: 0.68rem;
-    color: var(--accent);
-    opacity: 0.7;
-    text-decoration: none;
-    letter-spacing: 0.03em;
-    margin-bottom: 7px;
-    transition: opacity 0.15s;
-  }
-  .source-link:hover { opacity: 1; text-decoration: underline; }
-`;
-document.head.appendChild(infoStyle);
-
-// Wire guide interactions
-document.getElementById('infoBtn').addEventListener('click', e => {
-  e.stopPropagation();
-  infoModal.classList.add('open');
-});
-document.getElementById('infoCloseBtn').addEventListener('click', e => {
-  e.stopPropagation();
-  infoModal.classList.remove('open');
-});
-infoModal.addEventListener('click', e => {
-  if (e.target === infoModal) infoModal.classList.remove('open');
-});
-document.querySelectorAll('.info-period-btn').forEach(btn => {
-  btn.addEventListener('click', e => {
-    e.stopPropagation();
-    document.querySelectorAll('.info-period-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    const p = GUIDE_DATA[+btn.dataset.idx];
-    document.getElementById('infoDetailPlaceholder').style.display = 'none';
-    const content = document.getElementById('infoDetailContent');
-    content.style.display = 'block';
-    document.getElementById('infoDetailType').textContent = p.type;
-    document.getElementById('infoDetailName').textContent = p.name;
-    document.getElementById('infoDetailName').style.color = p.color;
-    document.getElementById('infoDetailRange').textContent = p.range;
-    document.getElementById('infoDetailFacts').textContent = p.facts;
-    const srcEl = document.getElementById('infoDetailSources');
-    srcEl.innerHTML = `<div class="sources-label">Sources</div>` +
-      p.sources.map(s => `<a class="source-link" href="${s.url}" target="_blank" rel="noopener">${s.label} ↗</a>`).join('');
-  });
-});
 </script>
 </body>
 </html>
